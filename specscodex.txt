@@ -1,0 +1,139 @@
+Backend спека — хакатон (12 часов)
+Упрощённая версия. Без античита, без онбординга, без блока "организация времени" и монетизации — сделаем если останется время.
+Архитектура (слои)
+/handlers    — HTTP-обработчики (роуты), парсят запрос, вызывают сервис, отдают ответ
+/services    — бизнес-логика (матчмейкинг, начисление очков, стрики, помодоро)
+/repositories — работа с БД (CRUD, запросы), никакой бизнес-логики
+/models      — структуры данных / схемы БД
+Правило: handlers не лезут в БД напрямую, services не знают про HTTP, repositories не знают про бизнес-правила.
+________________________________________
+1. Авторизация (JWT)
+Максимально просто, без email-подтверждений, без OAuth, без rate-limit на попытки входа.
+Модель User
+User {
+  id: uuid
+  nickname: string (unique)
+  password_hash: string
+  knowledge_points: int (default 0)
+  streak_count: int (default 0)
+  last_active_date: date
+  topics_completed: int (default 0)  // счётчик закрытых отделов, для гейта матчмейкинга
+  created_at: timestamp
+}
+Эндпоинты
+POST /auth/register
+•	body: { nickname, password }
+•	Repository: UserRepository.create(nickname, password_hash)
+•	Service: AuthService.register() — хэширует пароль (bcrypt), создаёт юзера, генерит JWT
+•	Response: { token, user_id }
+•	Ошибка если nickname занят → 409
+POST /auth/login
+•	body: { nickname, password }
+•	Service: AuthService.login() — находит юзера по nickname, сверяет хэш пароля, генерит JWT
+•	Response: { token, user_id }
+•	Ошибка если неверный логин/пароль → 401
+Middleware: authMiddleware
+•	Проверяет JWT из заголовка Authorization: Bearer <token>
+•	Достаёт user_id из токена, кладёт в контекст запроса
+•	Применяется ко всем эндпоинтам ниже, кроме /auth/*
+________________________________________
+2. Геймификация
+2.1 Роадмапы / Темы / Отделы
+Модели:
+Roadmap { id, title }             // например "Программирование"
+Unit    { id, roadmap_id, title, order }  // отдел внутри роадмапа
+Resource{ id, unit_id, url, title }       // ссылка на материал внутри отдела
+Question{ id, unit_id, text, options[], correct_option_index }
+GET /roadmaps — список роадмапов GET /roadmaps/:id/units — список отделов роадмапа (с order) GET /units/:id — детали отдела: ресурсы + доступен ли тест
+2.2 Прохождение отдела (тест)
+UserUnitProgress { user_id, unit_id, completed: bool, completed_at }
+POST /units/:id/test/submit
+•	body: { answers: [{question_id, selected_option_index}] }
+•	Service: ProgressService.submitTest(): 
+o	проверяет ответы против Question.correct_option_index
+o	если проходной балл достигнут (например >= 70%) → помечает UserUnitProgress.completed = true
+o	инкрементит User.topics_completed
+•	Response: { passed: bool, score: int, topics_completed: int }
+2.3 Матчмейкинг (гейт: открывается после 5 закрытых отделов)
+Упрощённо, без подбора по близости прогресса, без анти-фарма, без калибровки — "тупо", как договорились.
+Match {
+  id, player1_id, player2_id,
+  unit_id,          // из чьего пула отдела брались вопросы (менее продвинутого игрока)
+  question_ids[],
+  status: pending | active | finished,
+  created_at, finished_at
+}
+MatchAnswer { match_id, user_id, question_id, selected_option_index, is_correct }
+POST /matches/find
+•	Гейт: если User.topics_completed < 5 → 403 { error: "need_5_units_completed" }
+•	Service: MatchmakingService.findMatch(user_id): 
+o	простейшая реализация: ищет любого другого юзера в очереди ожидания (waiting_pool), у которого topics_completed >= 5
+o	если нашёлся — создаёт Match, определяет у кого меньше topics_completed (менее продвинутый) → берёт вопросы из последнего непройденного/недавно пройденного unit этого игрока
+o	если не нашёлся — кладёт юзера в очередь ожидания и возвращает { status: "waiting" }
+•	Response: { status: "matched", match_id } или { status: "waiting" }
+GET /matches/:id — состояние матча, вопросы (без правильных ответов в ответе)
+POST /matches/:id/answer
+•	body: { question_id, selected_option_index }
+•	Service: MatchService.submitAnswer() — сохраняет ответ, сверяет с correct_option_index
+POST /matches/:id/finish
+•	Вызывается когда оба игрока ответили на все вопросы (или по таймауту)
+•	Service: MatchService.finishMatch(): 
+o	считает число правильных ответов у каждого
+o	начисляет очки знаний: за каждый правильный ответ +N очков обоим; у кого правильных ответов больше — дополнительный бонус +M очков
+o	обновляет User.knowledge_points (без формулировок "победа/поражение" в ответе API — фронт сам решает как показать)
+•	Response: { player1_score, player2_score, player1_points_earned, player2_points_earned }
+2.4 Стрик
+POST /streak/ping
+•	Вызывается фронтом раз в день при активности (например при заходе в приложение)
+•	Service: StreakService.ping(user_id): 
+o	если last_active_date == вчера → streak_count += 1
+o	если last_active_date == сегодня → ничего не делать
+o	если разрыв больше дня → streak_count = 1
+o	обновляет last_active_date
+•	Response: { streak_count }
+Мультипликатор стрика можно применить в MatchService при начислении очков (например points * min(1 + streak_count * 0.05, 2.0)), но это не обязательно на первую итерацию — можно захардкодить множитель 1.0 и добавить позже.
+________________________________________
+3. Фокус (Помодоро)
+Без доп-приложения и детекта отвлечения — только сам таймер + эндпоинт статуса.
+PomodoroSession {
+  id, user_id,
+  started_at, duration_seconds,
+  status: running | finished | cancelled
+}
+POST /pomodoro/start
+•	body: { duration_seconds } (например 1500 = 25 мин)
+•	Service: PomodoroService.start(user_id, duration_seconds) 
+o	если уже есть активная сессия у юзера — завершить/перезаписать её (решить как проще: overwrite)
+o	создаёт запись со status: running, started_at: now()
+•	Response: { session_id, started_at, duration_seconds }
+POST /pomodoro/stop
+•	Service: помечает текущую активную сессию юзера как cancelled или finished
+•	Response: { status: "stopped" }
+GET /pomodoro/status/:user_id
+•	Ключевой эндпоинт — под него, судя по всему, и заточена доп-логика (можно позже прикрутить моб. пуши)
+•	Service: PomodoroService.isRunning(user_id): 
+o	находит последнюю сессию юзера со status: running
+o	проверяет, не истекло ли время (started_at + duration_seconds < now() → значит по факту сессия должна была завершиться, вернуть false и опционально обновить статус в БД на finished)
+•	Response: { is_running: true|false }
+________________________________________
+Сводка эндпоинтов
+POST   /auth/register
+POST   /auth/login
+
+GET    /roadmaps
+GET    /roadmaps/:id/units
+GET    /units/:id
+POST   /units/:id/test/submit
+
+POST   /matches/find
+GET    /matches/:id
+POST   /matches/:id/answer
+POST   /matches/:id/finish
+
+POST   /streak/ping
+
+POST   /pomodoro/start
+POST   /pomodoro/stop
+GET    /pomodoro/status/:user_id
+Всё, что выше этого списка — детали реализации сервисов/репозиториев под каждый эндпоинт, можно отдавать агенту как ТЗ и дальше вайбкодить поверх.
+

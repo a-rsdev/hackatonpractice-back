@@ -1,0 +1,24 @@
+### Register
+POST http://127.0.0.1:8000/auth/register
+Content-Type: application/json
+
+{"nickname": "demo_user", "password": "password123"}
+
+### Copy the token and user_id returned above
+@token = paste-token-here
+@user_id = paste-user-id-here
+
+### Roadmaps
+GET http://127.0.0.1:8000/roadmaps
+Authorization: Bearer {{token}}
+
+### Pomodoro
+POST http://127.0.0.1:8000/pomodoro/start
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"duration_seconds": 1500}
+
+### Pomodoro status
+GET http://127.0.0.1:8000/pomodoro/status/{{user_id}}
+Authorization: Bearer {{token}}

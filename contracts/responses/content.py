@@ -11,6 +11,8 @@ class UnitResponse(BaseModel):
     roadmap_id: str
     title: str
     order: int
+    locked: bool = False
+    completed: bool = False
 
 
 class ResourceResponse(BaseModel):

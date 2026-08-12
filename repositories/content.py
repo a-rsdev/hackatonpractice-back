@@ -3,7 +3,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from core.result import Result
 from database import SessionFactory
-from models.entities import Question, Resource, Roadmap, Unit
+from models.entities import Question, Resource, Roadmap, Unit, UserUnitProgress
 
 
 class ContentRepository:
@@ -48,5 +48,21 @@ class ContentRepository:
                 return Result.success(list(session.scalars(
                     select(Question).where(Question.unit_id == unit_id).order_by(Question.id)
                 )))
+            except SQLAlchemyError:
+                return Result.failure("database_error", 500)
+
+    def completed_unit_ids(self, user_id: str, roadmap_id: str) -> Result[set[str]]:
+        with SessionFactory() as session:
+            try:
+                rows = session.scalars(
+                    select(UserUnitProgress.unit_id)
+                    .join(Unit, Unit.id == UserUnitProgress.unit_id)
+                    .where(
+                        UserUnitProgress.user_id == user_id,
+                        UserUnitProgress.completed == True,  # noqa: E712
+                        Unit.roadmap_id == roadmap_id,
+                    )
+                )
+                return Result.success(set(rows))
             except SQLAlchemyError:
                 return Result.failure("database_error", 500)

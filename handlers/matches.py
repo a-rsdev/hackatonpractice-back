@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from contracts.responses.matches import (
     AnswerAcceptedResponse, MatchmakingResponse, MatchResponse, MatchResultResponse,
 )
-from contracts.requests.matches import MatchAnswerSubmission
+from contracts.requests.matches import MatchAnswerSubmission, MatchFindRequest
 from core.result import Result
 from dependencies import get_match_service
 from handlers.dependencies import current_user_id, handles_result
@@ -18,10 +18,11 @@ router = APIRouter(prefix="/matches", tags=["matches"])
 @router.post("/find", response_model=MatchmakingResponse)
 @handles_result
 def find_match(
+    body: MatchFindRequest,
     service: Annotated[MatchService, Depends(get_match_service)],
     user_id: str = Depends(current_user_id),
 ) -> Result[MatchmakingResponse]:
-    return service.find_match(user_id)
+    return service.find_match(user_id, body.roadmap_id)
 
 
 @router.get("/{match_id}", response_model=MatchResponse)

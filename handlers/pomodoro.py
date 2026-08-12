@@ -34,13 +34,10 @@ def stop(
     return service.stop(user_id)
 
 
-@router.get("/status/{requested_user_id}", response_model=PomodoroStatusResponse)
+@router.get("/status", response_model=PomodoroStatusResponse)
 @handles_result
 def status(
-    requested_user_id: str,
     service: Annotated[PomodoroService, Depends(get_pomodoro_service)],
     user_id: str = Depends(current_user_id),
 ) -> Result[PomodoroStatusResponse]:
-    if requested_user_id != user_id:
-        return Result.failure("cannot_view_another_users_session", 403)
     return service.status(user_id)

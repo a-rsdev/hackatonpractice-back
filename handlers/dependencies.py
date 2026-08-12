@@ -5,6 +5,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from contracts.responses.errors import ApiErrorResponse
+from core.errors import ApiError
 from core.result import Result
 
 
@@ -12,7 +13,10 @@ P = ParamSpec("P")
 
 
 def current_user_id(request: Request) -> str:
-    return request.state.user_id
+    user_id = request.state.user_id
+    if user_id is None:
+        raise ApiError("unauthorized", 401)
+    return user_id
 
 
 def handles_result(endpoint: Callable[P, Result[Any]]) -> Callable[P, Any]:

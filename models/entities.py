@@ -65,18 +65,12 @@ class UserUnitProgress(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class WaitingPlayer(Base):
-    __tablename__ = "waiting_pool"
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
-    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-
-
 class Match(Base):
     __tablename__ = "matches"
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     player1_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     player2_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
-    unit_id: Mapped[str] = mapped_column(ForeignKey("units.id"))
+    roadmap_id: Mapped[str] = mapped_column(ForeignKey("roadmaps.id"))
     question_ids: Mapped[list[str]] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -104,3 +98,10 @@ class PomodoroSession(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     duration_seconds: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String, default="running")
+
+
+class WaitingPlayer(Base):
+    __tablename__ = "waiting_pool"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    roadmap_id: Mapped[str] = mapped_column(ForeignKey("roadmaps.id"), index=True)
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

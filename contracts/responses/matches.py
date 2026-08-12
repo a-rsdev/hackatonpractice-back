@@ -21,7 +21,7 @@ class MatchResponse(BaseModel):
     id: str
     player1_id: str
     player2_id: str
-    unit_id: str
+    roadmap_id: str
     status: str
     questions: list[QuestionResponse]
 

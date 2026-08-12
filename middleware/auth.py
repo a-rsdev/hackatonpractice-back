@@ -1,7 +1,5 @@
 from fastapi import Request
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from services.auth import AuthService
 
@@ -14,22 +12,13 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.auth_service = auth_service
 
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if request.url.path in PUBLIC_PATHS or request.url.path.startswith("/auth/"):
-            return await call_next(request)
-        authorization = request.headers.get("Authorization", "")
-        if not authorization.startswith("Bearer "):
-            return self._unauthorized("missing_bearer_token")
-        authenticated = self.auth_service.authenticate(authorization[7:].strip())
-        if not authenticated.is_success:
-            return self._unauthorized(authenticated.error.code)
-        request.state.user_id = authenticated.value
-        return await call_next(request)
+    async def dispatch(self, request: Request, call_next):
+        token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
 
-    @staticmethod
-    def _unauthorized(code: str) -> JSONResponse:
-        return JSONResponse(
-            status_code=401,
-            content={"error": code},
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        request.state.user_id = None
+        if token:
+            result = self.auth_service.authenticate(token)
+            if result.is_success:
+                request.state.user_id = result.value
+
+        return await call_next(request)

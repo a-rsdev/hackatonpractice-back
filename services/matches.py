@@ -15,35 +15,51 @@ class MatchService:
         self.matches = matches
         self.users = users
 
-    def find_match(self, user_id: str) -> Result[MatchmakingResponse]:
-        found = self.users.get_by_id(user_id)
-        if not found.is_success:
-            return Result(error=found.error)
-        user = found.value
-        if user is None or user.topics_completed < 5:
+    def find_match(self, user_id: str, roadmap_id: str) -> Result[MatchmakingResponse]:
+        roadmap = self.matches.get_roadmap(roadmap_id)
+        if not roadmap.is_success:
+            return Result(error=roadmap.error)
+        if roadmap.value is None:
+            return Result.failure("roadmap_not_found", 404)
+
+        own_progress = self.matches.completed_units_count_in_roadmap(user_id, roadmap_id)
+        if not own_progress.is_success:
+            return Result(error=own_progress.error)
+        if own_progress.value < 5:
             return Result.failure("need_5_units_completed", 403)
-        claimed = self.matches.claim_opponent_or_enqueue(user_id)
+
+        claimed = self.matches.claim_opponent_or_enqueue(user_id, roadmap_id)
         if not claimed.is_success:
             return Result(error=claimed.error)
         opponent = claimed.value
         if opponent is None:
             return Result.success(WaitingMatchResponse())
 
-        less_advanced_id = user_id if user.topics_completed <= opponent.topics_completed else opponent.id
-        units = self.matches.list_units()
-        completed = self.matches.list_completed_progress(less_advanced_id)
+        my_completed = self.matches.completed_unit_ids_in_roadmap(user_id, roadmap_id)
+        opp_completed = self.matches.completed_unit_ids_in_roadmap(opponent.id, roadmap_id)
+        if not my_completed.is_success:
+            return Result(error=my_completed.error)
+        if not opp_completed.is_success:
+            return Result(error=opp_completed.error)
+
+        weaker_completed = (
+            my_completed.value if len(my_completed.value) <= len(opp_completed.value) else opp_completed.value
+        )
+
+        units = self.matches.units_for_roadmap(roadmap_id)
         if not units.is_success:
             return Result(error=units.error)
-        if not completed.is_success:
-            return Result(error=completed.error)
-        completed_ids = {progress.unit_id for progress in completed.value}
-        candidates = [unit for unit in units.value if unit.id not in completed_ids]
-        selected_unit = (candidates or units.value)[-1]
-        questions = self.matches.questions_for_unit(selected_unit.id)
+
+        weaker_unit_ids = [unit.id for unit in units.value if unit.id in weaker_completed]
+        if not weaker_unit_ids:
+            weaker_unit_ids = [units.value[0].id]
+
+        questions = self.matches.questions_for_units(weaker_unit_ids, limit=5)
         if not questions.is_success:
             return Result(error=questions.error)
+
         created = self.matches.create(
-            opponent.id, user_id, selected_unit.id, [question.id for question in questions.value],
+            opponent.id, user_id, roadmap_id, [question.id for question in questions.value],
         )
         if not created.is_success:
             return Result(error=created.error)
@@ -59,7 +75,7 @@ class MatchService:
             return Result(error=questions.error)
         return Result.success(MatchResponse(
             id=match.id, player1_id=match.player1_id, player2_id=match.player2_id,
-            unit_id=match.unit_id, status=match.status,
+            roadmap_id=match.roadmap_id, status=match.status,
             questions=[QuestionResponse(id=q.id, text=q.text, options=q.options) for q in questions.value],
         ))
 

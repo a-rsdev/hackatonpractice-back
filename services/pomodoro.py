@@ -23,7 +23,7 @@ class PomodoroService:
         ))
 
     def stop(self, user_id: str) -> Result[PomodoroStoppedResponse]:
-        stopped = self.sessions.stop_running(user_id)
+        stopped = self.sessions.delete_running(user_id)
         if not stopped.is_success:
             return Result(error=stopped.error)
         return Result.success(PomodoroStoppedResponse())

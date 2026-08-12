@@ -1,29 +1,88 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from core.result import Result
 from database import SessionFactory
-from models.entities import Match, MatchAnswer, Question, Unit, User, UserUnitProgress, WaitingPlayer
+from models.entities import Match, MatchAnswer, Question, Roadmap, Unit, User, UserUnitProgress, WaitingPlayer
 
 
 class MatchRepository:
-    def claim_opponent_or_enqueue(self, user_id: str) -> Result[User | None]:
+    def get_roadmap(self, roadmap_id: str) -> Result[Roadmap | None]:
         with SessionFactory() as session:
             try:
+                return Result.success(session.get(Roadmap, roadmap_id))
+            except SQLAlchemyError:
+                return Result.failure("database_error", 500)
+
+    def completed_units_count_in_roadmap(self, user_id: str, roadmap_id: str) -> Result[int]:
+        with SessionFactory() as session:
+            try:
+                count = session.scalar(
+                    select(func.count(UserUnitProgress.unit_id))
+                    .join(Unit, Unit.id == UserUnitProgress.unit_id)
+                    .where(
+                        UserUnitProgress.user_id == user_id,
+                        UserUnitProgress.completed.is_(True),
+                        Unit.roadmap_id == roadmap_id,
+                    )
+                )
+                return Result.success(count or 0)
+            except SQLAlchemyError:
+                return Result.failure("database_error", 500)
+
+    def completed_unit_ids_in_roadmap(self, user_id: str, roadmap_id: str) -> Result[set[str]]:
+        with SessionFactory() as session:
+            try:
+                rows = session.scalars(
+                    select(UserUnitProgress.unit_id)
+                    .join(Unit, Unit.id == UserUnitProgress.unit_id)
+                    .where(
+                        UserUnitProgress.user_id == user_id,
+                        UserUnitProgress.completed.is_(True),
+                        Unit.roadmap_id == roadmap_id,
+                    )
+                )
+                return Result.success(set(rows))
+            except SQLAlchemyError:
+                return Result.failure("database_error", 500)
+
+    def units_for_roadmap(self, roadmap_id: str) -> Result[list[Unit]]:
+        with SessionFactory() as session:
+            try:
+                return Result.success(list(session.scalars(
+                    select(Unit).where(Unit.roadmap_id == roadmap_id).order_by(Unit.order)
+                )))
+            except SQLAlchemyError:
+                return Result.failure("database_error", 500)
+
+    def claim_opponent_or_enqueue(self, user_id: str, roadmap_id: str) -> Result[User | None]:
+        with SessionFactory() as session:
+            try:
+                qualified_users = (
+                    select(UserUnitProgress.user_id)
+                    .join(Unit, Unit.id == UserUnitProgress.unit_id)
+                    .where(Unit.roadmap_id == roadmap_id, UserUnitProgress.completed.is_(True))
+                    .group_by(UserUnitProgress.user_id)
+                    .having(func.count(UserUnitProgress.unit_id) >= 5)
+                )
                 opponent_id = session.scalar(
                     select(WaitingPlayer.user_id)
-                    .join(User, User.id == WaitingPlayer.user_id)
-                    .where(WaitingPlayer.user_id != user_id, User.topics_completed >= 5)
+                    .where(
+                        WaitingPlayer.roadmap_id == roadmap_id,
+                        WaitingPlayer.user_id != user_id,
+                        WaitingPlayer.user_id.in_(qualified_users),
+                    )
                     .order_by(WaitingPlayer.joined_at).limit(1)
                 )
                 if opponent_id is None:
                     waiting = session.get(WaitingPlayer, user_id)
                     if waiting:
+                        waiting.roadmap_id = roadmap_id
                         waiting.joined_at = datetime.now(timezone.utc)
                     else:
-                        session.add(WaitingPlayer(user_id=user_id))
+                        session.add(WaitingPlayer(user_id=user_id, roadmap_id=roadmap_id))
                     session.commit()
                     return Result.success(None)
                 opponent = session.get(User, opponent_id)
@@ -34,41 +93,25 @@ class MatchRepository:
                 session.rollback()
                 return Result.failure("database_error", 500)
 
-    def list_units(self) -> Result[list[Unit]]:
-        with SessionFactory() as session:
-            try:
-                return Result.success(list(session.scalars(select(Unit).order_by(Unit.order))))
-            except SQLAlchemyError:
-                return Result.failure("database_error", 500)
-
-    def list_completed_progress(self, user_id: str) -> Result[list[UserUnitProgress]]:
+    def questions_for_units(self, unit_ids: list[str], limit: int = 5) -> Result[list[Question]]:
         with SessionFactory() as session:
             try:
                 return Result.success(list(session.scalars(
-                    select(UserUnitProgress).where(
-                        UserUnitProgress.user_id == user_id,
-                        UserUnitProgress.completed.is_(True),
-                    )
+                    select(Question)
+                    .where(Question.unit_id.in_(unit_ids))
+                    .order_by(Question.unit_id, Question.id)
+                    .limit(limit)
                 )))
             except SQLAlchemyError:
                 return Result.failure("database_error", 500)
 
-    def questions_for_unit(self, unit_id: str) -> Result[list[Question]]:
-        with SessionFactory() as session:
-            try:
-                return Result.success(list(session.scalars(
-                    select(Question).where(Question.unit_id == unit_id).order_by(Question.id).limit(5)
-                )))
-            except SQLAlchemyError:
-                return Result.failure("database_error", 500)
-
-    def create(self, player1_id: str, player2_id: str, unit_id: str,
+    def create(self, player1_id: str, player2_id: str, roadmap_id: str,
                question_ids: list[str]) -> Result[Match]:
         with SessionFactory() as session:
             try:
                 match = Match(
                     player1_id=player1_id, player2_id=player2_id,
-                    unit_id=unit_id, question_ids=question_ids, status="active",
+                    roadmap_id=roadmap_id, question_ids=question_ids, status="active",
                 )
                 session.add(match)
                 session.commit()

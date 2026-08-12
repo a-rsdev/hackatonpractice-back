@@ -1,6 +1,7 @@
 from datetime import datetime
+import traceback
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from core.result import Result
@@ -14,9 +15,8 @@ class PomodoroRepository:
         with SessionFactory() as session:
             try:
                 session.execute(
-                    update(PomodoroSession)
+                    delete(PomodoroSession)
                     .where(PomodoroSession.user_id == user_id, PomodoroSession.status == "running")
-                    .values(status="cancelled")
                 )
                 current = PomodoroSession(
                     user_id=user_id, duration_seconds=duration_seconds,
@@ -28,20 +28,21 @@ class PomodoroRepository:
                 return Result.success(current)
             except SQLAlchemyError:
                 session.rollback()
+                traceback.print_exc()
                 return Result.failure("database_error", 500)
 
-    def stop_running(self, user_id: str) -> Result[None]:
+    def delete_running(self, user_id: str) -> Result[None]:
         with SessionFactory() as session:
             try:
                 session.execute(
-                    update(PomodoroSession)
+                    delete(PomodoroSession)
                     .where(PomodoroSession.user_id == user_id, PomodoroSession.status == "running")
-                    .values(status="cancelled")
                 )
                 session.commit()
                 return Result.success(None)
             except SQLAlchemyError:
                 session.rollback()
+                traceback.print_exc()
                 return Result.failure("database_error", 500)
 
     def current(self, user_id: str) -> Result[PomodoroSession | None]:
@@ -53,17 +54,18 @@ class PomodoroRepository:
                     .order_by(PomodoroSession.started_at.desc()).limit(1)
                 ))
             except SQLAlchemyError:
+                traceback.print_exc()
                 return Result.failure("database_error", 500)
 
-    def finish(self, session_id: str) -> Result[PomodoroSession | None]:
+    def finish(self, session_id: str) -> Result[None]:
         with SessionFactory() as session:
             try:
                 current = session.get(PomodoroSession, session_id)
                 if current:
                     current.status = "finished"
                     session.commit()
-                    session.refresh(current)
-                return Result.success(current)
+                return Result.success(None)
             except SQLAlchemyError:
                 session.rollback()
+                traceback.print_exc()
                 return Result.failure("database_error", 500)

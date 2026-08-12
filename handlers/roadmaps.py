@@ -27,8 +27,9 @@ def units(
     roadmap_id: str,
     service: Annotated[ContentService, Depends(get_content_service)],
     _: str = Depends(current_user_id),
+    user_id: str = Depends(current_user_id)
 ) -> Result[list[UnitResponse]]:
-    return service.units(roadmap_id)
+    return service.units(roadmap_id, user_id)
 
 
 @router.get("/units/{unit_id}", response_model=UnitDetailsResponse)
@@ -37,5 +38,6 @@ def unit(
     unit_id: str,
     service: Annotated[ContentService, Depends(get_content_service)],
     _: str = Depends(current_user_id),
+    user_id: str = Depends(current_user_id)
 ) -> Result[UnitDetailsResponse]:
-    return service.unit(unit_id)
+    return service.unit(unit_id, user_id)

@@ -8,7 +8,7 @@ from config import (
 from contracts.responses.content import QuestionResponse
 from contracts.responses.matches import (
     AnswerAcceptedResponse, EligibleRoadmapResponse, MatchedResponse, MatchmakingResponse,
-    MatchResponse, MatchResultResponse, RoundResultResponse, WaitingMatchResponse,
+    MatchmakingGateResponse, MatchResponse, MatchResultResponse, RoundResultResponse, WaitingMatchResponse,
 )
 from core.result import Result
 from models.entities import Match, MatchAnswer
@@ -45,6 +45,16 @@ class MatchService:
             )
             for roadmap, count, points in found.value
         ])
+
+    def matchmaking_gate(self, user_id: str) -> Result[MatchmakingGateResponse]:
+        found = self.matches.roadmaps_with_progress(user_id)
+        if not found.is_success:
+            return Result(error=found.error)
+        completed_units = max((count for _, count, _ in found.value), default=0)
+        return Result.success(MatchmakingGateResponse(
+            completed_units=completed_units,
+            eligible=completed_units >= 5,
+        ))
 
     def find_match(self, user_id: str, roadmap_id: str) -> Result[MatchmakingResponse]:
         existing = self.matches.active_match_for_user(user_id)

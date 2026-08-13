@@ -3,7 +3,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from contracts.responses.matches import (
-    AnswerAcceptedResponse, MatchmakingResponse, MatchResponse, MatchResultResponse, EligibleRoadmapResponse,
+    AnswerAcceptedResponse, EligibleRoadmapResponse, MatchmakingGateResponse, MatchmakingResponse,
+    MatchResponse, MatchResultResponse,
 )
 from contracts.requests.matches import MatchAnswerSubmission, MatchFindRequest
 from core.result import Result
@@ -55,6 +56,15 @@ def eligible_roadmaps(
     user_id: str = Depends(current_user_id),
 ) -> Result[list[EligibleRoadmapResponse]]:
     return service.eligible_roadmaps(user_id)
+
+
+@router.get("/gate", response_model=MatchmakingGateResponse)
+@handles_result
+def matchmaking_gate(
+    service: Annotated[MatchService, Depends(get_match_service)],
+    user_id: str = Depends(current_user_id),
+) -> Result[MatchmakingGateResponse]:
+    return service.matchmaking_gate(user_id)
 
 @router.get("/{match_id}", response_model=MatchResponse)
 @handles_result

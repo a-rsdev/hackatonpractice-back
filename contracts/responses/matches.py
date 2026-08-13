@@ -35,6 +35,11 @@ class EligibleRoadmapResponse(BaseModel):
     points: int
 
 
+class MatchmakingGateResponse(BaseModel):
+    completed_units: int
+    eligible: bool
+
+
 class MatchResponse(BaseModel):
     id: str
     opponent_id: str

@@ -8,7 +8,7 @@ JWT_SECRET = os.getenv("JWT_SECRET", "development-secret-change-me")
 JWT_TTL_SECONDS = int(os.getenv("JWT_TTL_SECONDS", "86400"))
 
 
-PASSING_SCORE = 80
+PASSING_SCORE = 60
 
 ANSWER_TIME_SECONDS = 15
 REVEAL_DURATION_SECONDS = 3

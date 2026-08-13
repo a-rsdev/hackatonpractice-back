@@ -93,13 +93,13 @@ class MatchRepository:
                 session.rollback()
                 return Result.failure("database_error", 500)
 
-    def questions_for_units(self, unit_ids: list[str], limit: int = 5) -> Result[list[Question]]:
+    def questions_for_units(self, unit_ids: list[str], limit: int) -> Result[list[Question]]:
         with SessionFactory() as session:
             try:
                 return Result.success(list(session.scalars(
                     select(Question)
                     .where(Question.unit_id.in_(unit_ids))
-                    .order_by(Question.unit_id, Question.id)
+                    .order_by(func.random())
                     .limit(limit)
                 )))
             except SQLAlchemyError:
@@ -173,7 +173,7 @@ class MatchRepository:
                 return Result.failure("database_error", 500)
 
     def finish_and_award(self, match_id: str, score1: int, score2: int,
-                         points1: int, points2: int) -> Result[Match]:
+                         points1: int, points2: int, breakdown: dict) -> Result[Match]:
         with SessionFactory() as session:
             try:
                 match = session.get(Match, match_id)
@@ -188,9 +188,51 @@ class MatchRepository:
                     match.player2_score = score2
                     match.player1_points_earned = points1
                     match.player2_points_earned = points2
+                    match.score_breakdown = breakdown
                     session.commit()
                     session.refresh(match)
                 return Result.success(match)
+            except SQLAlchemyError:
+                session.rollback()
+                return Result.failure("database_error", 500)
+
+    def roadmaps_with_progress(self, user_id: str) -> Result[list[tuple[Roadmap, int]]]:
+        with SessionFactory() as session:
+            try:
+                rows = session.execute(
+                    select(
+                        Roadmap,
+                        func.count(UserUnitProgress.unit_id).filter(UserUnitProgress.completed.is_(True)),
+                    )
+                    .select_from(Roadmap)
+                    .join(Unit, Unit.roadmap_id == Roadmap.id)
+                    .outerjoin(
+                        UserUnitProgress,
+                        (UserUnitProgress.unit_id == Unit.id) & (UserUnitProgress.user_id == user_id),
+                    )
+                    .group_by(Roadmap.id)
+                    .order_by(Roadmap.title)
+                ).all()
+                return Result.success([(roadmap, count) for roadmap, count in rows])
+            except SQLAlchemyError:
+                return Result.failure("database_error", 500)
+
+    def force_miss_answer(self, match_id: str, user_id: str, question_id: str) -> Result[None]:
+        with SessionFactory() as session:
+            try:
+                existing = session.get(MatchAnswer, {
+                    "match_id": match_id, "user_id": user_id, "question_id": question_id,
+                })
+                if existing is None:
+                    session.add(MatchAnswer(
+                        match_id=match_id, user_id=user_id, question_id=question_id,
+                        selected_option_index=-1, is_correct=False,
+                    ))
+                    session.commit()
+                return Result.success(None)
+            except IntegrityError:
+                session.rollback()
+                return Result.success(None)
             except SQLAlchemyError:
                 session.rollback()
                 return Result.failure("database_error", 500)

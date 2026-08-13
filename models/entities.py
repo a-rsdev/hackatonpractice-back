@@ -79,6 +79,7 @@ class Match(Base):
     player2_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     player1_points_earned: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     player2_points_earned: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    score_breakdown: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
 
 class MatchAnswer(Base):
@@ -89,6 +90,7 @@ class MatchAnswer(Base):
     question_id: Mapped[str] = mapped_column(ForeignKey("questions.id"), primary_key=True)
     selected_option_index: Mapped[int] = mapped_column(Integer)
     is_correct: Mapped[bool] = mapped_column(Boolean)
+    answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class PomodoroSession(Base):

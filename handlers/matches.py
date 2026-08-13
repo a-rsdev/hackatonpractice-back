@@ -25,14 +25,7 @@ def find_match(
     return service.find_match(user_id, body.roadmap_id)
 
 
-@router.get("/{match_id}", response_model=MatchResponse)
-@handles_result
-def get_match(
-    match_id: str,
-    service: Annotated[MatchService, Depends(get_match_service)],
-    user_id: str = Depends(current_user_id),
-) -> Result[MatchResponse]:
-    return service.get_match(user_id, match_id)
+
 
 
 @router.post("/{match_id}/answer", response_model=AnswerAcceptedResponse)
@@ -62,3 +55,12 @@ def eligible_roadmaps(
     user_id: str = Depends(current_user_id),
 ) -> Result[list[EligibleRoadmapResponse]]:
     return service.eligible_roadmaps(user_id)
+
+@router.get("/{match_id}", response_model=MatchResponse)
+@handles_result
+def get_match(
+    match_id: str,
+    service: Annotated[MatchService, Depends(get_match_service)],
+    user_id: str = Depends(current_user_id),
+) -> Result[MatchResponse]:
+    return service.get_match(user_id, match_id)

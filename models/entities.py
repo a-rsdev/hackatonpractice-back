@@ -107,3 +107,9 @@ class WaitingPlayer(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
     roadmap_id: Mapped[str] = mapped_column(ForeignKey("roadmaps.id"), index=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+class UserRoadmapPoints(Base):
+    __tablename__ = "user_roadmap_points"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    roadmap_id: Mapped[str] = mapped_column(ForeignKey("roadmaps.id"), primary_key=True)
+    points: Mapped[int] = mapped_column(Integer, default=0)

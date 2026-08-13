@@ -21,10 +21,10 @@ MatchmakingResponse = WaitingMatchResponse | MatchedResponse
 class RoundResultResponse(BaseModel):
     question_id: str
     correct_option_index: int
-    player1_selected_index: int
-    player1_correct: bool
-    player2_selected_index: int
-    player2_correct: bool
+    your_selected_index: int
+    your_correct: bool
+    opponent_selected_index: int
+    opponent_correct: bool
 
 
 class EligibleRoadmapResponse(BaseModel):
@@ -32,12 +32,12 @@ class EligibleRoadmapResponse(BaseModel):
     title: str
     completed_units: int
     eligible: bool
+    points: int
 
 
 class MatchResponse(BaseModel):
     id: str
-    player1_id: str
-    player2_id: str
+    opponent_id: str
     roadmap_id: str
     status: str
     total_rounds: int
@@ -54,13 +54,16 @@ class AnswerAcceptedResponse(BaseModel):
 
 
 class MatchResultResponse(BaseModel):
-    player1_score: int
-    player2_score: int
-    player1_base_points: int
-    player2_base_points: int
-    player1_streak_multiplier: float
-    player2_streak_multiplier: float
-    player1_win_multiplier: float
-    player2_win_multiplier: float
-    player1_points_earned: int
-    player2_points_earned: int
+    your_score: int
+    opponent_score: int
+    you_won: bool
+    is_draw: bool
+    your_base_points: int
+    your_streak_multiplier: float
+    your_win_multiplier: float
+    your_points_earned: int
+    your_roadmap_points_total: int
+    opponent_base_points: int
+    opponent_streak_multiplier: float
+    opponent_win_multiplier: float
+    opponent_points_earned: int

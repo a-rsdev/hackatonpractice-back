@@ -5,7 +5,9 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from core.result import Result
 from database import SessionFactory
-from models.entities import Match, MatchAnswer, Question, Roadmap, Unit, User, UserUnitProgress, WaitingPlayer
+from models.entities import (
+    Match, MatchAnswer, Question, Roadmap, Unit, User, UserRoadmapPoints, UserUnitProgress, WaitingPlayer,
+)
 
 
 class MatchRepository:
@@ -54,6 +56,22 @@ class MatchRepository:
                 return Result.success(list(session.scalars(
                     select(Unit).where(Unit.roadmap_id == roadmap_id).order_by(Unit.order)
                 )))
+            except SQLAlchemyError:
+                return Result.failure("database_error", 500)
+
+    def active_match_for_user(self, user_id: str) -> Result[Match | None]:
+        with SessionFactory() as session:
+            try:
+                match = session.scalar(
+                    select(Match)
+                    .where(
+                        Match.status == "active",
+                        (Match.player1_id == user_id) | (Match.player2_id == user_id),
+                    )
+                    .order_by(Match.created_at.desc())
+                    .limit(1)
+                )
+                return Result.success(match)
             except SQLAlchemyError:
                 return Result.failure("database_error", 500)
 
@@ -172,8 +190,8 @@ class MatchRepository:
             except SQLAlchemyError:
                 return Result.failure("database_error", 500)
 
-    def finish_and_award(self, match_id: str, score1: int, score2: int,
-                         points1: int, points2: int, breakdown: dict) -> Result[Match]:
+    def finish_and_award(self, match_id: str, roadmap_id: str, score1: int, score2: int,
+                         points1: int, points2: int, breakdown: dict) -> Result[tuple[Match, int, int]]:
         with SessionFactory() as session:
             try:
                 match = session.get(Match, match_id)
@@ -182,6 +200,19 @@ class MatchRepository:
                     player2 = session.get(User, match.player2_id)
                     player1.knowledge_points += points1
                     player2.knowledge_points += points2
+
+                    rp1 = session.get(UserRoadmapPoints, {"user_id": match.player1_id, "roadmap_id": roadmap_id})
+                    if rp1 is None:
+                        rp1 = UserRoadmapPoints(user_id=match.player1_id, roadmap_id=roadmap_id, points=0)
+                        session.add(rp1)
+                    rp1.points += points1
+
+                    rp2 = session.get(UserRoadmapPoints, {"user_id": match.player2_id, "roadmap_id": roadmap_id})
+                    if rp2 is None:
+                        rp2 = UserRoadmapPoints(user_id=match.player2_id, roadmap_id=roadmap_id, points=0)
+                        session.add(rp2)
+                    rp2.points += points2
+
                     match.status = "finished"
                     match.finished_at = datetime.now(timezone.utc)
                     match.player1_score = score1
@@ -191,18 +222,25 @@ class MatchRepository:
                     match.score_breakdown = breakdown
                     session.commit()
                     session.refresh(match)
-                return Result.success(match)
+                    session.refresh(rp1)
+                    session.refresh(rp2)
+                    return Result.success((match, rp1.points, rp2.points))
+
+                rp1 = session.get(UserRoadmapPoints, {"user_id": match.player1_id, "roadmap_id": roadmap_id})
+                rp2 = session.get(UserRoadmapPoints, {"user_id": match.player2_id, "roadmap_id": roadmap_id})
+                return Result.success((match, rp1.points if rp1 else 0, rp2.points if rp2 else 0))
             except SQLAlchemyError:
                 session.rollback()
                 return Result.failure("database_error", 500)
 
-    def roadmaps_with_progress(self, user_id: str) -> Result[list[tuple[Roadmap, int]]]:
+    def roadmaps_with_progress(self, user_id: str) -> Result[list[tuple[Roadmap, int, int]]]:
         with SessionFactory() as session:
             try:
                 rows = session.execute(
                     select(
                         Roadmap,
                         func.count(UserUnitProgress.unit_id).filter(UserUnitProgress.completed.is_(True)),
+                        func.coalesce(UserRoadmapPoints.points, 0),
                     )
                     .select_from(Roadmap)
                     .join(Unit, Unit.roadmap_id == Roadmap.id)
@@ -210,10 +248,14 @@ class MatchRepository:
                         UserUnitProgress,
                         (UserUnitProgress.unit_id == Unit.id) & (UserUnitProgress.user_id == user_id),
                     )
-                    .group_by(Roadmap.id)
+                    .outerjoin(
+                        UserRoadmapPoints,
+                        (UserRoadmapPoints.roadmap_id == Roadmap.id) & (UserRoadmapPoints.user_id == user_id),
+                    )
+                    .group_by(Roadmap.id, UserRoadmapPoints.points)
                     .order_by(Roadmap.title)
                 ).all()
-                return Result.success([(roadmap, count) for roadmap, count in rows])
+                return Result.success([(roadmap, count, points) for roadmap, count, points in rows])
             except SQLAlchemyError:
                 return Result.failure("database_error", 500)
 
@@ -232,6 +274,21 @@ class MatchRepository:
                 return Result.success(None)
             except IntegrityError:
                 session.rollback()
+                return Result.success(None)
+            except SQLAlchemyError:
+                session.rollback()
+                return Result.failure("database_error", 500)
+
+    def enqueue(self, user_id: str, roadmap_id: str) -> Result[None]:
+        with SessionFactory() as session:
+            try:
+                waiting = session.get(WaitingPlayer, user_id)
+                if waiting:
+                    waiting.roadmap_id = roadmap_id
+                    waiting.joined_at = datetime.now(timezone.utc)
+                else:
+                    session.add(WaitingPlayer(user_id=user_id, roadmap_id=roadmap_id))
+                session.commit()
                 return Result.success(None)
             except SQLAlchemyError:
                 session.rollback()
